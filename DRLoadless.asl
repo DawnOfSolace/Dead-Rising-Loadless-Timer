@@ -27,7 +27,7 @@ state("DeadRising", "SteamPatch3")
 	
 	uint mainMenuID : 0x1946FC0, 0x2F058, 0x38;
 	byte mainMenuButtonSelection : 0x1946FC0, 0x2F058, 0x4C;
-//	byte mainMenuMaxPossibleButtonSelection : 0x1946FC0, 0x2F058, 0x9C;
+	byte mainMenuMaxPossibleButtonSelection : 0x1946FC0, 0x2F058, 0x9C;
 	byte mainMenuSavePresent : 0x1946FC0, 0x2F058, 0xA0;
 
 //	Value for Brock's (and tank's, possibly every first psychopath's?) health
@@ -38,13 +38,15 @@ state("DeadRising", "SteamPatch3")
 	
 //	Values used for IL splits (after the case file disappears, with the case file having immediately followed a cutscene)
 	ushort lastCutsceneSeen : 0x01D18C80, 0x20e8;
-	uint inCutscene : 0x01D18C80, 0x20f4;
+	uint inCutscene : 0x01D18C80, 0x20f8;
 	uint inGameTimer : 0x1946FC0, 0x2F058, 0x198;
 	
 //	Values used for Case 2-3 split
 	// Value which increments during certain checkpoints in the story, picking up the first aid kit in Medicine Run will set this value to 215.
 	ushort campaignProgress : 0x01944DD8, 0x20DC0, 0x150;
 	byte caseFileOpen : 0x1946FC0, 0x2F058, 0x184;
+	
+	uint gameTimeCurrent : 0x1946FC0, 0x2f058, 0x198;
 	
 	
 }
@@ -54,58 +56,39 @@ startup
 	// See update block for comments on these variables.
 	vars.introSequence = 0;
 	vars.inLoad = 0;
+	vars.cutsceneFirst500ms = 0;
 	vars.resetCheck = 0;
+	vars.gameTimeStart = 0;
+	vars.gameTimeDifference = 0;
 	
 	//Prevents splits from firing twice.
-	vars.splitsTick = 3;
+	vars.splitsTick = 0;
 	
 	vars.stopWatch = new Stopwatch();
 	
-	refreshRate = 300;
 	
 }
 
 
 update
 {
-	// currentRoomValue is FF FF FF FF when not valid (e.g. title menu) and updates during a playable segment in a room (Frank gaining control / turret segment / NOT THE HELICOPTER CUTSCENE). vars.introSequence is 2 for 72 Hour, 1 for Overtime.
-	if (current.currentRoomValue == 4294967295 & current.inCutscene == 1677743)
-	{
-		vars.introSequence = 1;
-	}
-	else
-	{
-		vars.introSequence = 0;
-	}
-	
-	// frankCanMove and frankCanMoveTwo are both set to 0 when Frank doesn't have control (e.g. during cutscene) and checking these two values prevents the game from starting the timer when still in a loading screen allowing for more accurate timing. nothingIsBeingRendered is 1 when no new 3D frames are being rendered (e.g. during loads, picture taking, and fading into/out of the pause menu), gameStatus is 652 when the game is loading (?). ISSUE: Triggers incorrectly when Overtime rewards are being given out, but this doesn't affect any run using this script.
-	if (current.frankCanMove == 0 & current.frankCanMoveTwo == 0 & current.nothingIsBeingRendered == true | current.gameStatus == 652)
-	{
-		vars.inLoad = 1;
-	}
-	else
-	{
-		vars.inLoad = 0;
-	}
-
 	// Checks if we hit a cutscene and sets vars.resetCheck to 1 if we have. vars.resetCheck is set back to 0 when the title menu is enetered. This prevents false starts as the lastCutsceneSeen's value persists until a new cutscene is seen. For example, if the timer starts after viewing 2-1's cutscene and the player resets, the timer will falsely start immediately after a reset.
 	if (current.inCutscene == 65537)
 	{
 		vars.resetCheck = 1;
 	}
-}
-
-isLoading
-{	
-	// 609 and lower gameStatus values are used for title menu and intro sequence, etc. First set of conditions checks if we're not in an intro sequence/title menu and if we're in a load. Second set checks if the game's not rendering anything during 72 Hour's into EXCEPT for the helicopter cutscene. Third set checks if we're in Overtime's intro and not rendering anything (Probably doesn't work properly if you go straight from 72 hour into Overtime). 
-	if (current.inCutscene == 16777473 | current.isLoading == 1 & current.currentRoomValue != 4294967295)
-	{
-	return true;
-	}
+	
+	if (current.mainMenuSavePresent == 1 & current.mainMenuMaxPossibleButtonSelection >= 3 & current.mainMenuButtonSelection == 2 | current.mainMenuSavePresent == 0 & current.mainMenuMaxPossibleButtonSelection >= 2 & current.mainMenuButtonSelection == 1)
+		{vars.overtimeSelected = 1;}
 	else
+		{vars.overtimeSelected = 0;}
+		
+
+	if (current.gameTimeCurrent != 0)
 	{
-	return false;
+		vars.gameTimeDifference = ((current.gameTimeCurrent - vars.gameTimeStart) * 2.77777777778);
 	}
+	
 }
 
 reset
@@ -124,12 +107,20 @@ start
 //	For runs starting from the main menu, starts on new game.
 	if (current.mainMenuID == 199169)
 	{
-		if (current.mainMenuSavePresent == 1 & current.mainMenuButtonSelection == 0)
+		if (current.mainMenuSavePresent == 1 & current.mainMenuButtonSelection == 0 || current.mainMenuButtonSelection == 3)
 		{
 			return false;
 		}
 		else
 		{
+			if (vars.overtimeSelected == 1)
+			{
+			vars.gameTimeStart = 12528000;
+			}
+			else
+			{
+			vars.gameTimeStart = 3888000;
+			}
 			return true;
 		}
 	}
@@ -142,12 +133,18 @@ start
 		{
 			if (current.inGameTimer != old.inGameTimer)
 			{
+				vars.gameTimeStart = current.gameTimeCurrent;
 				vars.stopWatch.Reset();
 				vars.splitsTick++;
 				return true;
 			}
 		}
 	}
+}
+
+gameTime
+{
+return TimeSpan.FromMilliseconds(vars.gameTimeDifference);
 }
 
 split
